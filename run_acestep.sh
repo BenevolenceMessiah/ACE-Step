@@ -12,7 +12,7 @@ ARG_DEVICE_ID="--device_id 0"
 ARG_SHARE="--share false"
 ARG_BF16="--bf16 true"
 ARG_TORCH_COMPILE="--torch_compile false"
-ARG_CPU_OFFLOAD="--cpu_offload true"
+ARG_CPU_OFFLOAD="--cpu_offload false"
 ARG_OVERLAPPED_DECODE="--overlapped_decode true"
 
 # Environment setup
@@ -39,8 +39,19 @@ pip install -e .
 ACESTEP_ARGS="$ARG_CHECKPOINT_PATH $ARG_SERVER_NAME $ARG_PORT $ARG_DEVICE_ID $ARG_SHARE $ARG_BF16 $ARG_TORCH_COMPILE $ARG_CPU_OFFLOAD $ARG_OVERLAPPED_DECODE"
 
 # Start API service in background
-echo "Starting ACE-Step API service..."
-python infer-api.py &
+# echo "Starting ACE-Step API service..."
+# python infer-api.py &
+
+# --------------------------------------------------------------------
+#  Start the API server in its own terminal window
+# --------------------------------------------------------------------
+echo "Starting ACE-Step API service in a new terminal …"
+API_LOG="api_$(date +%Y%m%d_%H%M%S).log"
+gnome-terminal --title="ACEStep-API" -- bash -c "
+    source $VENV_DIR/bin/activate
+    python infer-api.py 2>&1 | tee $API_LOG
+    read -p 'Press ENTER to close …'
+" &
 
 # Store API process ID
 API_PID=$!
