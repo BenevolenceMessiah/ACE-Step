@@ -1,3 +1,16 @@
+# -------------------------------------------
+# Server & API
+# -------------------------------------------
+fastapi>=0.115,<0.117
+uvicorn[standard]>=0.34.0,<0.36.0
+
+# Prometheus metrics for /metrics
+prometheus-fastapi-instrumentator==7.1.0
+prometheus-client>=0.17.1
+
+# -------------------------------------------
+# ACE-Step / audio stack (existing)
+# -------------------------------------------
 datasets==3.4.1
 diffusers>=0.33.0
 gradio
@@ -8,9 +21,16 @@ numpy
 pypinyin==0.53.0
 pytorch_lightning==2.5.1
 soundfile==0.13.1
+
+# NOTE (PyTorch wheels):
+# If you install CUDA-enabled wheels separately (recommended),
+# comment these three lines out to avoid pip replacing your CUDA build
+# with a CPU wheel on some platforms. Your run scripts already install
+# the correct Torch wheels for CUDA.
 torch
 torchaudio
 torchvision
+
 tqdm
 transformers==4.50.0
 py3langid==0.3.0
@@ -24,3 +44,9 @@ click
 peft
 tensorboard
 tensorboardX
+
+# -------------------------------------------
+# System dependency (not a pip package)
+# -------------------------------------------
+# FFmpeg must be present on PATH for Opus transcoding (libopus).
+# Install via your OS package manager (e.g., apt install ffmpeg / brew install ffmpeg).
