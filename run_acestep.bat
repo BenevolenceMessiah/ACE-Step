@@ -1,61 +1,71 @@
 @echo off
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
-REM ----------
-REM Configure ACE-Step arguments with documentation
-REM ----------
-
-REM Model checkpoint path (default: downloads automatically)
+REM ----------------------------------------------------------------------------
+REM Configuration for ACE-Step (Gradio UI)
+REM ----------------------------------------------------------------------------
 set ARG_CHECKPOINT_PATH=--checkpoint_path ./checkpoints
-
-REM Server bind address (default: 127.0.0.1)
 set ARG_SERVER_NAME=--server_name 127.0.0.1
-
-REM Server port (default: 7865)
 set ARG_PORT=--port 7867
-
-REM GPU device ID (default: 0)
 set ARG_DEVICE_ID=--device_id 0
-
-REM Enable Gradio sharing (default: false)
 set ARG_SHARE=--share false
-
-REM Use bfloat16 precision (default: true)
 set ARG_BF16=--bf16 true
-
-REM Use torch.compile() optimization (default: false)
 set ARG_TORCH_COMPILE=--torch_compile false
-
-REM Offload model to CPU (default: false)
-set ARG_CPU_OFFLOAD=--cpu_offload true
-
-REM Use overlapped decoding (default: false)
+set ARG_CPU_OFFLOAD=--cpu_offload false    REM unified: false on both platforms
 set ARG_OVERLAPPED_DECODE=--overlapped_decode true
+
+REM ----------------------------------------------------------------------------
+REM API unload toggle (new)
+REM   Default: 1 (unload after each request)
+REM   Set API_UNLOAD=0 to keep the model resident and skip unloading.
+REM ----------------------------------------------------------------------------
+if not defined API_UNLOAD set API_UNLOAD=1
+
+REM ----------------------------------------------------------------------------
+REM Conservative CUDA allocator tuning (override if needed)
+REM Docs: https://pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf
+REM ----------------------------------------------------------------------------
+if not defined PYTORCH_CUDA_ALLOC_CONF set "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128"
 
 REM ----------
 REM Environment setup
 REM ----------
-
-REM Create virtual environment if not exists
-if exist ".venv\Scripts\activate" (
-    echo Found .venv environment
+if exist ".venv\Scripts\activate.bat" (
+  echo Found .venv environment
 ) else (
-    echo Creating new .venv environment...
-    python -m venv .venv
+  echo Creating new .venv environment...
+  python -m venv .venv
 )
 
-REM Activate the virtual environment
-call .venv\Scripts\activate
+call ".venv\Scripts\activate.bat"
 
-REM Check for updates in the repository
+REM Upgrade pip to its latest version
+python -m pip install --upgrade pip
+
 echo Checking the Benevolence Messiah fork for updates via Git...
 git pull
 
-REM Install/update Windows/NVIDIA PyTorch packages
-:: If you are on Windows and plan to use an NVIDIA GPU, install PyTorch with CUDA support first:
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+REM ----------------------------------------------------------------------------
+REM Install/update PyTorch first (GPU if possible), then project deps.
+REM Try CUDA 12.8 -> 12.4 -> 12.1 wheels; fall back to CPU-only.
+REM ----------------------------------------------------------------------------
+where nvidia-smi >nul 2>&1
+if %errorlevel%==0 (
+  echo NVIDIA GPU detected; installing CUDA-enabled PyTorch (trying cu128 → cu124 → cu121)…
+  call :InstallTorchWithIndex https://download.pytorch.org/whl/cu128
+  if errorlevel 1 call :InstallTorchWithIndex https://download.pytorch.org/whl/cu124
+  if errorlevel 1 call :InstallTorchWithIndex https://download.pytorch.org/whl/cu121
+  if errorlevel 1 (
+    echo Falling back to CPU-only PyTorch…
+    pip install torch torchvision torchaudio
+  )
+) else (
+  echo No NVIDIA GPU detected; installing CPU-only PyTorch…
+  pip install torch torchvision torchaudio
+)
 
-REM Install/update dependencies
+REM Install/update project dependencies
 pip install -e .
 pip install triton-windows
 
@@ -63,22 +73,33 @@ REM ----------
 REM Start API service
 REM ----------
 echo Starting ACE-Step API service...
-start "ACE-Step API" python infer-api.py
+
+REM Build API args based on unload toggle (unload by default)
+set "API_EXTRA_ARGS=--unload"
+if "%API_UNLOAD%"=="0" (
+  set "API_EXTRA_ARGS=--no-unload"
+)
+
+REM Ensure child inherits intended behavior
+set "ACESTEP_UNLOAD=%API_UNLOAD%"
+
+REM NOTE: With START, the first quoted token is the window title.
+start "ACE-Step API" cmd /c "set PYTORCH_CUDA_ALLOC_CONF=%PYTORCH_CUDA_ALLOC_CONF% && python infer-api.py %API_EXTRA_ARGS%"
 
 REM ----------
 REM Build and launch ACE-Step
 REM ----------
-
-REM Combine all arguments into a single variable
 set ACESTEP_ARGS=%ARG_CHECKPOINT_PATH% %ARG_SERVER_NAME% %ARG_PORT% %ARG_DEVICE_ID% %ARG_SHARE% %ARG_BF16% %ARG_TORCH_COMPILE% %ARG_CPU_OFFLOAD% %ARG_OVERLAPPED_DECODE%
 
-REM Display configuration
 echo Starting ACE-Step Gradio Web UI with parameters:
 echo %ACESTEP_ARGS%
 
-REM Launch ACE-Step service
 call acestep %ACESTEP_ARGS%
 
-REM Keep window open after execution
 :end
 pause
+goto :eof
+
+:InstallTorchWithIndex
+  pip install torch torchvision torchaudio --index-url %1
+  exit /b %errorlevel%
